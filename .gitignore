@@ -1,6 +1,15 @@
 # ESP-IDF build output
 /build/
+*.bin
+*.elf
+*.map
 
-# Old sdkconfig files
+# SDK config backups
 /sdkconfig.old
 /sdkconfig.bak
+
+# Local environment files
+*.log
+
+# macOS system files
+.DS_Store

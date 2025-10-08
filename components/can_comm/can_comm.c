@@ -13,7 +13,6 @@ esp_err_t can_comm_init(uint32_t my_can_id) {
     my_filter_id = my_can_id;
 
     twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_GPIO, CAN_RX_GPIO, TWAI_MODE_NORMAL);
-	//g_config.bus_off_recovery = true;   // <-- enable auto bus-off recovery
     twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 
     // Configure filter to only accept this ESP's CAN ID
@@ -43,22 +42,26 @@ esp_err_t can_comm_send(uint32_t target_id, const motor_cmd_t *cmd) {
     int speed = cmd->speed;
     int direction = cmd->direction;
 
+    // Clamp speed [0..100]
+    if (speed < 0) speed = 0;
+    if (speed > 100) speed = 100;
+
     twai_message_t tx_msg = {
         .identifier = target_id,  // Send to specific ESP
         .extd = 0,                // standard frame (11-bit ID)
-        .data_length_code = 3     // 3 bytes (speed LSB, speed MSB, dir)
+        .data_length_code = 2     // 2 bytes: speed + direction
     };
 
-    tx_msg.data[0] = (uint8_t)(speed & 0xFF);
-    tx_msg.data[1] = (uint8_t)((speed >> 8) & 0xFF);
-    tx_msg.data[2] = (uint8_t)(direction & 0xFF);
+    tx_msg.data[0] = (uint8_t)(speed & 0xFF);      // 0–100
+    tx_msg.data[1] = (uint8_t)(direction & 0xFF);  // 0 or 1
 
     if (twai_transmit(&tx_msg, pdMS_TO_TICKS(1000)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to transmit CAN frame");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Sent CAN frame to ID=0x%03X: speed=%d, dir=%d", target_id, speed, direction);
+    ESP_LOGI(TAG, "Sent CAN frame to ID=0x%03X: speed=%d%%, dir=%d",
+             target_id, speed, direction);
     return ESP_OK;
 }
 
@@ -66,10 +69,10 @@ esp_err_t can_comm_receive(motor_cmd_t *cmd, TickType_t ticks_to_wait) {
     twai_message_t rx_msg;
 
     if (twai_receive(&rx_msg, ticks_to_wait) == ESP_OK) {
-        if (rx_msg.data_length_code >= 3) {
-            cmd->speed = rx_msg.data[0] | (rx_msg.data[1] << 8);
-            cmd->direction = rx_msg.data[2];
-            ESP_LOGI(TAG, "Received CAN frame on ID=0x%03X: speed=%d, dir=%d", 
+        if (rx_msg.data_length_code >= 2) {
+            cmd->speed = rx_msg.data[0];       // 0–100
+            cmd->direction = rx_msg.data[1];   // 0/1
+            ESP_LOGI(TAG, "Received CAN frame on ID=0x%03X: speed=%d%%, dir=%d", 
                      rx_msg.identifier, cmd->speed, cmd->direction);
             return ESP_OK;
         }
